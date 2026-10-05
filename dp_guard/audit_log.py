@@ -68,6 +68,31 @@ class AuditLog:
             "remaining_epsilon": result.remaining_epsilon,
             "budget_exhausted": result.budget_exhausted,
         }
+        if result.multi_agent_trace:
+            entry["multi_agent_swarm"] = {
+                "lead_intent": result.multi_agent_trace.lead_intent,
+                "spawned_subagents": [
+                    {
+                        "name": s.name,
+                        "role": s.role.value if isinstance(s.role, Enum) else str(s.role),
+                        "target_metrics": [m.value if isinstance(m, Enum) else str(m) for m in s.target_metrics],
+                        "allocated_epsilon": s.allocated_epsilon,
+                    }
+                    for s in result.multi_agent_trace.spawned_subagents
+                ],
+                "subagent_decisions": [
+                    {
+                        "subagent_name": d.subagent_name,
+                        "role": d.role.value if isinstance(d.role, Enum) else str(d.role),
+                        "local_assessment": d.local_assessment,
+                        "recommended_action": d.recommended_action,
+                        "confidence": d.confidence,
+                    }
+                    for d in result.multi_agent_trace.subagent_decisions
+                ],
+                "synthesized_action": result.multi_agent_trace.synthesized_action,
+                "lead_synthesis_rationale": result.multi_agent_trace.lead_synthesis_rationale,
+            }
         with self._path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
 

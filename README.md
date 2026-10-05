@@ -6,16 +6,18 @@
 
 ## Возможности
 
-- **Изоляция сырых данных (Raw Telemetry Boundary):** Полная инкапсуляция пользовательских данных UE в защищенном контуре `RawTelemetryStore`; LLM физически не имеет доступа к неанонимизированным записям.
+- **Мультиагентный рой нейросетей (Multi-Agent Swarm):** Иерархическая координация: Главный LLM-координатор (`LeadOrchestratorAgent`) динамически порождает специализированных автономных субагентов (`ThreatMitigation`, `AnomalyForensics`, `SlicingQoS`), распределяет кванты бюджета приватности ($\sum \varepsilon_i \le \varepsilon_{\text{total}}$) и синтезирует согласованное решение.
+- **Локальный анклав телеметрии (Local Edge Enclave):** Строгая изоляция сырых абонентских данных (SUPI, IMSI, IP, дампы пакетов) на локальном узле ядра/радиодоступа. Сырые данные **никогда не передаются в облако**; во внешнюю LLM отправляются исключительно скаляры с шумом Лапласа.
+- **Поддержка реального 5G Standalone стенда (Open5GS + UERANSIM):** Адаптер `Live5GTelemetryAdapter` для мониторинга интерфейса `ogstun` и замкнутого управления трафиком через `iptables`/`tc`.
 - **Механизм чистого $\varepsilon$-DP (Laplace Mechanism):** Добавление калиброванного шума $\text{Lap}(\Delta_1 / \varepsilon)$ к агрегированным KPI сессий абонентов.
 - **Каталог типизированных метрик ($\mathcal{T}$):** 6 типизированных метрик сети с фиксированными $L_1$-чувствительностями $\Delta_1(q)$ и границами $[\varepsilon_{\min}, \varepsilon_{\max}]$.
 - **Плоскость типизированных политик (Typed Policy Plane):** Ролевой контроль доступа $\Pi: \text{Role} \to \mathcal{T}$ (`security_operator`, `network_admin`, `readonly_auditor`).
 - **Фильтр бюджета приватности (Privacy Filter / Odometer):** Превентивная проверка и списание бюджета $\varepsilon$ для предотвращения утечки информации при адаптивных сериях запросов.
 - **Верификатор допустимости (Admissibility Verifier):** Детерминированная проверка безопасности действий LLM $\text{Adm}(\hat{a}, \tilde{z})$ на основе доверительных множеств $B_\beta(\tilde{z})$ с надежностью $1-\beta = 95\%$.
 - **Защитный откат (Fail-Safe Fallback):** Автоматическое применение политики *deny-by-default* (`safe_fallback`) при обнаружении аномалий, перерасходе бюджета или галлюцинациях нейросети.
-- **Мультипровайдерная интеграция LLM (Proposal Generator):** Поддержка Google Gemini API (`gemini-2.0-flash`, `gemini-1.5-flash`), OpenAI API (`gpt-4o-mini`) и автономного Mock-режима со строгой валидацией через JSON Schema.
-- **Замкнутый контур управления (Closed-Loop Actuation):** Симуляция применения сетевых управляющих воздействий (`block_traffic`, `isolate_segment`, `rate_limit_slice`) и динамическое изменение состояния сети в реальном времени.
-- **Неизменяемый аудит-лог (Audit & Compliance):** Фиксация каждого шага оркестрации, значений $\varepsilon$, доверительных интервалов и вердиктов верификатора в формате JSONL.
+- **Мультипровайдерная интеграция LLM (Proposal Generator):** Поддержка Google Gemini API (`gemini-3.6-flash`), OpenAI API (`gpt-4o-mini`) и автономного Mock-режима со строгой валидацией через JSON Schema.
+- **Замкнутый контур управления (Closed-Loop Actuation):** Симуляция и реальное исполнение сетевых управляющих воздействий (`block_traffic`, `isolate_segment`, `rate_limit_slice`) с динамическим изменением состояния сети.
+- **Неизменяемый аудит-лог (Audit & Compliance):** Фиксация каждого шага оркестрации, состава субагентов, значений $\varepsilon$, доверительных интервалов и вердиктов верификатора в формате JSONL.
 
 ---
 
@@ -30,43 +32,53 @@
                                         |
                                         v
                     +---------------------------------------+
-                    |          ORCHESTRATION PLANE          |
-                    |        (LLM Proposal Generator)       |
-                    |      Gemini / OpenAI / Mock LLM       |
+                    |       LEAD COORDINATOR AGENT          |
+                    | (Gemini 3.6 Flash / Multi-Agent Swarm)|
                     +-------------------+-------------------+
-                                        |
-           +----------------------------+----------------------------+
-           | Proposed Plan (queries)                                 | Proposed Action (a^)
-           v                                                         v
-+-----------------------+                                   +-------------------+
-|     POLICY PLANE      |                                   |   VERIFICATION    |
-| Typed Policy Pi(Role) |                                   |       PLANE       |
-|   Privacy Filter      |                                   |  B_beta(z_noisy)  |
-+-----------+-----------+                                   +---------+---------+
-            |                                                         |
-            v                                                         v
-+-----------------------+                                     [ ADMISSIBLE? ]
-|    TELEMETRY PLANE    | ====( Laplace DP: z_noisy )=======>   /         \
-| Raw UE Session Store  |                                (YES) /           \ (NO)
-+-----------------------+                                     v             v
-                                                         [ Execute ]   [ Safe Fallback ]
-                                                         [ Action  ]   [ (Fail-Safe)   ]
+                                        |  (Spawns Subagents & partitions eps)
+        +-------------------------------+-------------------------------+
+        |                               |                               |
+        v                               v                               v
++-------------------+           +-------------------+           +-------------------+
+| Threat Mitigator  |           | Anomaly Forensics |           | Slicing & QoS     |
+|     Subagent      |           |     Subagent      |           |     Subagent      |
++---------+---------+           +---------+---------+           +---------+---------+
+          |                               |                               |
+          +-------------------------------+-------------------------------+
+                                          | Swarm Consensus Proposal (a^)
+                                          v
++-----------------------+       +-------------------+
+|     POLICY PLANE      |       |   VERIFICATION    |
+| Typed Policy Pi(Role) |       |       PLANE       |
+|   Privacy Filter      |       |  B_beta(z_noisy)  |
++-----------+-----------+       +---------+---------+
+            |                             |
+            v                             v
++-----------------------+           [ ADMISSIBLE? ]
+|  LOCAL EDGE ENCLAVE   |             /         \
+| (Raw Telemetry Store) |====(DP)==> /           \
+| Open5GS / ogstun / UE |      (YES)/             \(NO)
++-----------------------+          v               v
+                              [ Execute ]     [ Safe Fallback ]
+                              [ Action  ]     [ (Fail-Safe)   ]
 ```
 
 ### Описание компонентов
 
 | Компонент | Модуль | Описание |
 |-----------|--------|----------|
-| **Raw Telemetry Store** | `network_telemetry.py` | Загрузка записей сессий UE из JSON, вычисление агрегированных KPI $q(X)$ и динамическая симуляция эволюции сети. |
-| **Telemetry Plane** | `telemetry_plane.py` | Единственная точка доступа к сырым данным; накладывает шум Лапласа $\text{Lap}(\Delta_1 / \varepsilon)$ и выдает безопасные наблюдения $\tilde{z}$. |
-| **Privacy Policy Plane** | `privacy_policy.py` | Контроль ролевого доступа $\Pi(\text{Role})$, проверка допустимости запрашиваемых метрик, диапазонов $\varepsilon$ и действий. |
+| **Multi-Agent Swarm** | `subagents.py` | Иерархический рой: координатор и профильные субагенты с локальными бюджетами и голосованием. |
+| **Live 5G Adapter** | `live_5g_adapter.py` | Интеграция с физическим/виртуальным 5G-стендом (Open5GS + UERANSIM) на интерфейсе `ogstun`. |
+| **Local Telemetry Store** | `network_telemetry.py` | Хранение сессий UE строго в локальной памяти; вычисление $q(X)$ без доступа извне. |
+| **Telemetry Plane** | `telemetry_plane.py` | Единственная точка доступа к сырым данным; накладывает шум Лапласа $\text{Lap}(\Delta_1 / \varepsilon)$. |
+| **Privacy Policy Plane** | `privacy_policy.py` | Контроль ролевого доступа $\Pi(\text{Role})$, проверка допустимости запрашиваемых метрик и действий. |
 | **Privacy Accountant** | `privacy_accountant.py` | Учет расхода бюджета приватности $\varepsilon_{\text{spent}} \le \varepsilon_{\text{tot}}$, превентивная блокировка при перерасходе. |
-| **Orchestration Plane** | `orchestrator.py` | Координатор замкнутого цикла: Intent $\to$ LLM $\to$ Policy $\to$ DP Reads $\to$ Verify $\to$ Actuate $\to$ Audit. |
+| **Orchestration Plane** | `orchestrator.py` | Координатор замкнутого цикла: Intent $\to$ Swarm $\to$ Policy $\to$ DP Reads $\to$ Verify $\to$ Actuate $\to$ Audit. |
 | **LLM Planner** | `openai_planner.py` / `llm_factory.py` | Генератор планов и действий через структурированный JSON Schema (поддержка Google Gemini и OpenAI). |
 | **Mock Planner** | `mock_llm.py` | Автономный генератор предложений для оффлайн-демонстраций и тестов без API-ключей. |
 | **Admissibility Verifier** | `admissibility_verifier.py` | Математическая проверка безопасности действий с учетом доверительного радиуса шума $t_\beta = b \ln(2/\beta)$. |
-| **Action Executor** | `action_executor.py` | Применение управляющих команд к сети с обратной связью (блокировка сессий, изоляция слайсов, шейпинг). |
-| **Audit Log** | `audit_log.py` | Структурированное журналирование всех эпох в формате JSONL для аудита безопасности и соответствия регуляторам. |
+| **Action Executor** | `action_executor.py` | Применение команд к сети с обратной связью (`iptables`, `tc`, разрыв сессий). |
+| **Audit Log** | `audit_log.py` | Структурированное журналирование всех эпох в формате JSONL для аудита безопасности. |
 
 ---
 
@@ -147,12 +159,22 @@ DP_GUARD_ROLE=security_operator
 pytest tests/ -v
 ```
 
-### 2. Запуск демонстрации замкнутого цикла управления
+### 2. Запуск демонстрации мультиагентного роя (Google Gemini)
 ```powershell
-python main.py
+python main.py demo --epochs 3 --llm
 ```
 
-### 3. Просмотр журнала аудита в реальном времени
+### 3. Автономный оффлайн-запуск роя без интернета (Mock LLM)
+```powershell
+python main.py demo --epochs 3 --mock
+```
+
+### 4. Запуск в реальном времени на 5G-стенде (Open5GS + UERANSIM)
+```powershell
+python main.py live-5g --interface ogstun --epochs 3 --simulate-attack
+```
+
+### 5. Просмотр журнала аудита в реальном времени
 ```powershell
 Get-Content logs/audit.jsonl -Tail 1 | ConvertFrom-Json | Format-List
 ```

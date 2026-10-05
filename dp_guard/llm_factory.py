@@ -8,6 +8,7 @@ from dp_guard.config import DPGuardConfig
 from dp_guard.mock_llm import MockLLMPlanner
 from dp_guard.openai_planner import OpenAIPlanner
 from dp_guard.privacy_policy import PrivacyPolicy
+from dp_guard.subagents import MultiAgentPlanner
 from dp_guard.types import NetworkContext, OrchestrationPlan, ProposedAction
 
 
@@ -27,7 +28,7 @@ class LLMPlanner(Protocol):
 
 def create_llm_planner(config: DPGuardConfig, policy: PrivacyPolicy) -> tuple[LLMPlanner, str]:
     """
-    Create an LLM planner based on configuration.
+    Create an LLM planner based on configuration wrapped with Multi-Agent Swarm coordinator.
 
     Args:
         config: Runtime configuration.
@@ -37,45 +38,37 @@ def create_llm_planner(config: DPGuardConfig, policy: PrivacyPolicy) -> tuple[LL
         Tuple of (planner instance, provider name string).
     """
     if config.llm_provider == "gemini" and config.gemini_api_key:
-        return (
-            OpenAIPlanner(
-                api_key=config.gemini_api_key,
-                model=config.gemini_model,
-                policy=policy,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            ),
-            f"gemini:{config.gemini_model}",
+        inner = OpenAIPlanner(
+            api_key=config.gemini_api_key,
+            model=config.gemini_model,
+            policy=policy,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
+        return MultiAgentPlanner(inner), f"multi-agent[gemini:{config.gemini_model}]"
 
     if config.llm_provider == "openai" and config.openai_api_key:
-        return (
-            OpenAIPlanner(
-                api_key=config.openai_api_key,
-                model=config.openai_model,
-                policy=policy,
-            ),
-            f"openai:{config.openai_model}",
+        inner = OpenAIPlanner(
+            api_key=config.openai_api_key,
+            model=config.openai_model,
+            policy=policy,
         )
+        return MultiAgentPlanner(inner), f"multi-agent[openai:{config.openai_model}]"
 
     if config.gemini_api_key and not config.use_mock_llm:
-        return (
-            OpenAIPlanner(
-                api_key=config.gemini_api_key,
-                model=config.gemini_model,
-                policy=policy,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            ),
-            f"gemini:{config.gemini_model}",
+        inner = OpenAIPlanner(
+            api_key=config.gemini_api_key,
+            model=config.gemini_model,
+            policy=policy,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         )
+        return MultiAgentPlanner(inner), f"multi-agent[gemini:{config.gemini_model}]"
 
     if config.openai_api_key and not config.use_mock_llm:
-        return (
-            OpenAIPlanner(
-                api_key=config.openai_api_key,
-                model=config.openai_model,
-                policy=policy,
-            ),
-            f"openai:{config.openai_model}",
+        inner = OpenAIPlanner(
+            api_key=config.openai_api_key,
+            model=config.openai_model,
+            policy=policy,
         )
+        return MultiAgentPlanner(inner), f"multi-agent[openai:{config.openai_model}]"
 
-    return MockLLMPlanner(), "mock"
+    return MultiAgentPlanner(), "multi-agent[mock]"

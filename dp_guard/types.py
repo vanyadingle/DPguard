@@ -86,6 +86,65 @@ ActionType = Literal[
 ]
 
 
+class SubagentRole(str, Enum):
+    """Specialized roles for autonomous subagents in the multi-agent swarm."""
+
+    ANOMALY_FORENSICS = "anomaly_forensics"
+    SLICING_QOS = "slicing_qos"
+    THREAT_MITIGATION = "threat_mitigation"
+
+
+@dataclass(frozen=True)
+class SubagentSpec:
+    """
+    Specification for a spawned subagent.
+
+    Attributes:
+        name: Unique subagent identifier.
+        role: Domain specialization.
+        target_metrics: DP metrics assigned to this subagent.
+        allocated_epsilon: Privacy sub-budget assigned by the lead agent.
+    """
+
+    name: str
+    role: SubagentRole
+    target_metrics: List[MetricType]
+    allocated_epsilon: float
+
+
+@dataclass
+class SubagentDecision:
+    """
+    Autonomous domain recommendation produced by a spawned subagent.
+
+    Attributes:
+        subagent_name: Identifier of the reporting subagent.
+        role: Subagent specialization role.
+        observations: Noisy observations evaluated by this subagent.
+        local_assessment: Domain-specific evaluation and rationale.
+        recommended_action: Action candidate recommended by this subagent.
+        confidence: Confidence score in [0.0, 1.0].
+    """
+
+    subagent_name: str
+    role: SubagentRole
+    observations: List["NoisyObservation"]
+    local_assessment: str
+    recommended_action: ActionType
+    confidence: float = 0.95
+
+
+@dataclass
+class MultiAgentTrace:
+    """Execution trace of the multi-agent swarm in a single epoch."""
+
+    lead_intent: str
+    spawned_subagents: List[SubagentSpec]
+    subagent_decisions: List[SubagentDecision]
+    synthesized_action: ActionType
+    lead_synthesis_rationale: str
+
+
 @dataclass(frozen=True)
 class ProposedAction:
     """
@@ -188,3 +247,4 @@ class EpochResult:
     remaining_epsilon: float
     budget_exhausted: bool = False
     llm_provider: str = "mock"
+    multi_agent_trace: Optional[MultiAgentTrace] = None

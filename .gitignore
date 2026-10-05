@@ -16,3 +16,4 @@ WHITE_PAPER.md
 DP_Guard_White_Paper.docx
 create_whitepaper_doc.py
 generate_defense_docs.py
+*.txt

@@ -88,7 +88,65 @@ def print_banner(config: DPGuardConfig, orchestrator: Orchestrator) -> None:
     print("Raw aggregates (HIDDEN from LLM/orchestrator):")
     for key, value in metrics.items():
         print(f"  {key}: {value:.2f}")
+    print("Telemetry Mode: LOCAL EDGE ENCLAVE (No raw cloud transmission)")
     print()
+
+
+def build_orchestrator(
+    config: DPGuardConfig,
+    use_live_5g: bool = False,
+    interface: str = "ogstun",
+) -> Orchestrator:
+    """
+    Wire all DP-Guard planes from configuration.
+
+    Args:
+        config: Runtime configuration.
+        use_live_5g: If True, attach to physical/virtual 5G testbed interface (ogstun).
+        interface: Name of 5G testbed network interface.
+
+    Returns:
+        Fully configured Orchestrator instance.
+    """
+    if use_live_5g:
+        from dp_guard.live_5g_adapter import Live5GTelemetryAdapter
+
+        telemetry_source: NetworkTelemetrySource = Live5GTelemetryAdapter(
+            interface=interface,
+            target_slice="eMBB-1",
+            data_dir=config.project_root / "data",
+        )
+    else:
+        telemetry_source = NetworkTelemetrySource(
+            records_path=config.telemetry_path,
+            topology_path=config.topology_path,
+            target_slice="eMBB-1",
+        )
+
+    raw_store = RawTelemetryStore(telemetry_source)
+    telemetry = TelemetryPlane(raw_store)
+    accountant = PrivacyAccountant(epsilon_total=config.epsilon_total)
+    policy = PrivacyPolicy(role=config.operator_role)
+    verifier = AdmissibilityVerifier(
+        threat_safety_threshold=config.threat_safety_threshold,
+        anomaly_safety_threshold=config.anomaly_safety_threshold,
+        beta=config.verification_beta,
+    )
+    llm, provider = create_llm_planner(config, policy)
+    executor = ActionExecutor(telemetry_source)
+    audit = AuditLog(config.audit_log_path)
+
+    return Orchestrator(
+        telemetry_plane=telemetry,
+        telemetry_source=telemetry_source,
+        privacy_accountant=accountant,
+        verifier=verifier,
+        policy=policy,
+        llm_planner=llm,
+        action_executor=executor,
+        audit_log=audit,
+        llm_provider=provider,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -130,6 +188,36 @@ def parse_args() -> argparse.Namespace:
         help="Total privacy budget epsilon (default: 2.0)",
     )
 
+    # 5G Testbed live runner
+    live_parser = subparsers.add_parser("live-5g", help="Run real-time orchestration on 5G Testbed (Open5GS + UERANSIM)")
+    live_parser.add_argument(
+        "--interface",
+        type=str,
+        default="ogstun",
+        help="5G UPF network interface to monitor (default: ogstun)",
+    )
+    live_parser.add_argument(
+        "--epochs",
+        type=int,
+        default=3,
+        help="Number of orchestration epochs to run (default: 3)",
+    )
+    live_parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Force deterministic offline Mock LLM instead of API",
+    )
+    live_parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Explicit flag for LLM mode",
+    )
+    live_parser.add_argument(
+        "--simulate-attack",
+        action="store_true",
+        help="Simulate real-time cyber attack spike on the 5G testbed",
+    )
+
     return parser.parse_args()
 
 
@@ -169,7 +257,17 @@ def main() -> None:
         use_mock_llm=(provider == "mock"),
     )
 
-    orchestrator = build_orchestrator(config)
+    is_live_5g = getattr(args, "command", "") == "live-5g"
+    interface = getattr(args, "interface", "ogstun")
+    simulate_attack = getattr(args, "simulate_attack", False)
+
+    orchestrator = build_orchestrator(config, use_live_5g=is_live_5g, interface=interface)
+
+    if is_live_5g and simulate_attack:
+        source = orchestrator._telemetry_source  # noqa: SLF001
+        if hasattr(source, "simulate_attack_spike"):
+            source.simulate_attack_spike(compromised_ue_count=3)
+
     print_banner(config, orchestrator)
 
     default_intents = [

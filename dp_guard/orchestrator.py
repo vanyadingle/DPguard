@@ -114,10 +114,18 @@ class Orchestrator:
 
         print(f"\n{'=' * 60}")
         print(f"EPOCH {self._epoch_index + 1} | Intent: {intent}")
-        print(f"LLM provider: {self._llm_provider}")
+        print(f"LLM coordinator: {self._llm_provider}")
         print(f"{'=' * 60}")
-        print(f"LLM Plan ({len(plan.queries)} queries): {plan.reasoning}")
-        print(f"Proposed action: {proposed_action.action_type}")
+        print("[LOCAL TELEMETRY ENCLAVE] Raw subscriber records strictly isolated in local memory. Zero cloud leakage.")
+        print(f"Lead Plan ({len(plan.queries)} queries): {plan.reasoning}")
+
+        if hasattr(self._llm, "last_spawned") and self._llm.last_spawned:
+            print(f"[MULTI-AGENT SWARM] Spawned {len(self._llm.last_spawned)} specialized autonomous subagents:")
+            for sub in self._llm.last_spawned:
+                m_str = ", ".join(m.value for m in sub.target_metrics)
+                print(f"  * {sub.name} [{sub.role.value}] | metrics=[{m_str}] | eps_budget={sub.allocated_epsilon}")
+
+        print(f"Initial candidate action: {proposed_action.action_type}")
 
         # Static policy validation
         try:
@@ -176,6 +184,18 @@ class Orchestrator:
                 f"z_noisy={obs.noisy_value:.2f} (eps={query.epsilon}, b={obs.scale:.2f})"
             )
 
+        # Multi-Agent Consensus and Decision Synthesis
+        multi_trace = None
+        if hasattr(self._llm, "post_observation_synthesis") and observations:
+            synth_action, multi_trace = self._llm.post_observation_synthesis(intent, observations)
+            print("[SUBAGENTS CONSENSUS]")
+            for dec in multi_trace.subagent_decisions:
+                print(f"  * {dec.subagent_name}: vote='{dec.recommended_action}' (conf={dec.confidence:.2f})")
+                print(f"    Rationale: {dec.local_assessment}")
+            print(f"  Synthesis: {multi_trace.lead_synthesis_rationale}")
+            print(f"  Consensus Proposed Action: {synth_action.action_type}")
+            proposed_action = synth_action
+
         # Admissibility verification
         verification = self._verifier.verify(proposed_action, observations)
         admissible = verification.admissible
@@ -205,7 +225,7 @@ class Orchestrator:
         result = self._finalize_and_log(
             intent, plan, proposed_action, observations,
             executed_action, execution_result, admissible,
-            verification_message, budget_exhausted,
+            verification_message, budget_exhausted, multi_trace,
         )
 
         self._telemetry_source.advance_epoch()
@@ -223,6 +243,7 @@ class Orchestrator:
         admissible: bool,
         verification_message: str,
         budget_exhausted: bool,
+        multi_agent_trace: Optional[object] = None,
     ) -> EpochResult:
         """Build epoch result, append to history, write audit log."""
         state = self._accountant.get_state()
@@ -238,6 +259,7 @@ class Orchestrator:
             remaining_epsilon=state.epsilon_remaining,
             budget_exhausted=budget_exhausted,
             llm_provider=self._llm_provider,
+            multi_agent_trace=multi_agent_trace,  # type: ignore[arg-type]
         )
         self._history.append(result)
         self._audit.record_epoch(result)
