@@ -230,8 +230,10 @@ def main() -> None:
     force_mock = getattr(args, "mock", False)
     role_arg = getattr(args, "role", None)
     eps_arg = getattr(args, "epsilon", None)
+    is_live_5g = getattr(args, "command", "") == "live-5g"
 
-    np.random.seed(42)
+    if not is_live_5g:
+        np.random.seed(42)
     base_config = DPGuardConfig.from_env()
 
     # Override config based on CLI flags

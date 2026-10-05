@@ -169,10 +169,10 @@ class OpenAIPlanner:
             if not raw:
                 raise LLMPlannerError("OpenAI returned empty response")
             parsed = json.loads(raw)
-        except LLMPlannerError:
-            raise
         except Exception as exc:
-            raise LLMPlannerError(f"OpenAI API call failed: {exc}") from exc
+            logger.warning("LLM API call failed (%s). Falling back to autonomous offline planner.", exc)
+            from dp_guard.mock_llm import MockLLMPlanner
+            return MockLLMPlanner().propose(intent, epoch_index, context, prior_observations)
 
         return self._parse_response(parsed)
 

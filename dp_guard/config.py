@@ -15,6 +15,26 @@ try:
 except ImportError:
     pass
 
+def _fallback_load_env(search_paths: list[Path]) -> None:
+    """Manually parse .env if python-dotenv is not installed."""
+    for path in search_paths:
+        env_file = path / ".env" if path.is_dir() else path
+        if env_file.is_file():
+            try:
+                with open(env_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+
 
 def _env_float(name: str, default: float) -> float:
     """Parse a float environment variable with fallback."""
@@ -61,6 +81,7 @@ class DPGuardConfig:
             Populated DPGuardConfig instance.
         """
         root = project_root or Path(__file__).resolve().parent.parent
+        _fallback_load_env([Path.cwd(), root])
         openai_key = os.getenv("OPENAI_API_KEY") or None
         gemini_key = os.getenv("GEMINI_API_KEY") or None
         explicit_provider = os.getenv("LLM_PROVIDER")
